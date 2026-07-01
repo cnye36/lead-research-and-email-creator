@@ -6,6 +6,7 @@
     "start": "tsx src/main.ts",
     "dev": "tsx watch src/main.ts",
     "regenerate-emails": "tsx src/regenerateEmails.ts",
+    "regenerate-subjects": "tsx src/regenerateSubjects.ts",
     "score-leads": "tsx src/scoreLeads.ts"
   },
   "dependencies": {

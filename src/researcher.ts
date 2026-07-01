@@ -3,6 +3,8 @@ import type { Lead, SearchResults, LLMOutput, Config } from "./types.js";
 import { normalizeLeadScore } from "./leadScorer.js";
 import {
   buildRegenerateEmailsUserPrompt,
+  buildRegenerateSubjectsUserPrompt,
+  buildSubjectSystemPrompt,
   buildSystemPrompt,
   buildUserPrompt,
 } from "./prompts.js";
@@ -179,5 +181,52 @@ export async function generateEmailsFromResearch(
     email_1: draftEmail("email_1"),
     email_2: draftEmail("email_2"),
     email_3: draftEmail("email_3"),
+  };
+}
+
+/** LLM only: rewrite subject lines for an already-written 3-email sequence. Bodies are unchanged. */
+export async function generateSubjectsFromEmails(
+  lead: Lead,
+  config: Config,
+  researchSummary: string,
+  emails: Pick<LLMOutput, "email_1" | "email_2" | "email_3">
+): Promise<{ email_1_subject: string; email_2_subject: string; email_3_subject: string }> {
+  const openai = new OpenAI({ apiKey: config.openaiApiKey });
+
+  const systemPrompt = buildSubjectSystemPrompt({
+    name: config.senderName,
+    company: config.senderCompany,
+    role: config.senderRole,
+    productContext: config.productContext,
+    leadScoringContext: config.leadScoringContext,
+  });
+  const userPrompt = buildRegenerateSubjectsUserPrompt(lead, researchSummary, emails);
+
+  const response = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: config.openaiModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      }),
+    config.maxRetries,
+    `OpenAI:subjects:${lead.email || lead.company}`
+  );
+
+  const raw = response.choices[0]?.message?.content ?? "{}";
+  const parsed = JSON.parse(raw) as Partial<{
+    email_1_subject: string;
+    email_2_subject: string;
+    email_3_subject: string;
+  }>;
+
+  return {
+    email_1_subject: sanitize(parsed.email_1_subject ?? ""),
+    email_2_subject: sanitize(parsed.email_2_subject ?? ""),
+    email_3_subject: sanitize(parsed.email_3_subject ?? ""),
   };
 }
